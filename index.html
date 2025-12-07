@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Memory Garden</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@200;300;400;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #050505;
+        font-family: 'Noto Serif SC', serif;
+        color: #e5e5e5;
+      }
+      .font-display {
+        font-family: 'Cormorant Garamond', serif;
+      }
+      
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+      }
+      
+      .animate-breathe {
+        animation: breathe 8s ease-in-out infinite;
+      }
+      @keyframes breathe {
+        0%, 100% { opacity: 0.8; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.02); }
+      }
+
+      /* Smoke Dissolve Animation */
+      .animate-smoke-exit {
+        animation: smokeExit 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+      
+      @keyframes smokeExit {
+        0% {
+          opacity: 1;
+          filter: blur(0);
+          transform: translateY(0) scale(1);
+        }
+        40% {
+          opacity: 0.8;
+          filter: blur(2px);
+          transform: translateY(-20px) scale(1.05);
+        }
+        100% {
+          opacity: 0;
+          filter: blur(20px);
+          transform: translateY(-100px) scale(1.2);
+        }
+      }
+
+      .animate-fade-in {
+        animation: fadeIn 2s ease-out forwards;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Noise Texture for Particle Feel */
+      .bg-noise {
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+      }
+
+      /* Puzzle Shape Classes via Mask */
+      .puzzle-mask-1 {
+        mask-image: url(#puzzle-1);
+        -webkit-mask-image: url(#puzzle-1);
+        mask-size: contain;
+        -webkit-mask-size: contain;
+        mask-repeat: no-repeat;
+        -webkit-mask-repeat: no-repeat;
+        mask-position: center;
+        -webkit-mask-position: center;
+      }
+
+      .text-shadow-glow {
+        text-shadow: 0 0 20px rgba(255,255,255,0.3);
+      }
+      
+      .perspective-1000 {
+        perspective: 1000px;
+      }
+      .preserve-3d {
+        transform-style: preserve-3d;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    
+    <!-- SVG Assets for Shapes/Filters -->
+    <svg width="0" height="0" style="position: absolute; pointer-events: none;">
+      <defs>
+        <!-- Simple Puzzle Shape Path (Rough approximation for mask) -->
+        <mask id="puzzle-1" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+          <path d="M0.1 0.1 H0.4 
+                   C0.4 0.05, 0.45 0, 0.5 0 
+                   C0.55 0, 0.6 0.05, 0.6 0.1 
+                   H0.9 V0.4 
+                   C0.95 0.4, 1 0.45, 1 0.5 
+                   C1 0.55, 0.95 0.6, 0.9 0.6 
+                   V0.9 H0.6 
+                   C0.6 0.95, 0.55 1, 0.5 1 
+                   C0.45 1, 0.4 0.95, 0.4 0.9 
+                   H0.1 V0.6 
+                   C0.05 0.6, 0 0.55, 0 0.5 
+                   C0 0.45, 0.05 0.4, 0.1 0.4 
+                   Z" fill="white"/>
+        </mask>
+      </defs>
+    </svg>
+  </body>
+</html>
