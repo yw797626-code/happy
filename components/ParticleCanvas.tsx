@@ -31,7 +31,7 @@ const ParticleCanvas: React.FC<ParticleCanvasProps> = ({ imageSrc, audioData, is
       canvas.height = window.innerHeight;
 
       // Draw image small to sample data
-      const maxDim = 500; 
+      const maxDim = 800; // Increased resolution for better clarity
       const scale = Math.min(maxDim / img.width, maxDim / img.height);
       const drawWidth = img.width * scale;
       const drawHeight = img.height * scale;
@@ -45,11 +45,14 @@ const ParticleCanvas: React.FC<ParticleCanvasProps> = ({ imageSrc, audioData, is
       const data = imageData.data;
       
       const particles: Particle[] = [];
-      const density = 4; 
+      const density = 3; // Increased density (lower number) for clearer image
 
       const cx = drawWidth / 2;
       const cy = drawHeight / 2;
-      const maxRadius = Math.min(cx, cy);
+      
+      // Calculate a "soft" boundary based on the image diagonal to keep more of it
+      // Instead of Math.min (circle inside rect), we use a larger radius to cover corners
+      const maxRadius = Math.sqrt(cx * cx + cy * cy) * 0.9; 
 
       for (let y = 0; y < drawHeight; y += density) {
         for (let x = 0; x < drawWidth; x += density) {
@@ -65,9 +68,9 @@ const ParticleCanvas: React.FC<ParticleCanvasProps> = ({ imageSrc, audioData, is
           const dist = Math.sqrt(dx * dx + dy * dy);
           
           // Organic Edge Logic: 
-          // Only keep particles within a rough circle, with some noise at edges
-          const noise = Math.random() * 20;
-          if (dist > maxRadius - 20 + noise) continue;
+          // Relaxed culling: allow particles further out, just add noise at the very edges
+          const noise = Math.random() * 50;
+          if (dist > maxRadius - 50 + noise) continue;
 
           if (a > 100) {
             particles.push({
@@ -75,7 +78,7 @@ const ParticleCanvas: React.FC<ParticleCanvasProps> = ({ imageSrc, audioData, is
               y: offsetY + y,
               originX: offsetX + x,
               originY: offsetY + y,
-              color: `rgba(${r},${g},${b}, ${0.6 + Math.random() * 0.4})`, // variable opacity
+              color: `rgba(${r},${g},${b}, ${0.7 + Math.random() * 0.3})`, // slightly higher opacity
               size: Math.random() * 1.5 + 0.5,
               baseSize: Math.random() * 1.5 + 0.5,
               vx: 0,
@@ -156,10 +159,7 @@ const ParticleCanvas: React.FC<ParticleCanvasProps> = ({ imageSrc, audioData, is
       const angleX = -mouseRef.current.y * 0.5;
       
       // Mouse Proximity wave
-      // Calculate screen space position roughly
-      // We do a simple radial check from mouse position projected to center
       const mouseInfluenceDist = 200;
-      // Simply use raw mouse coordinates mapped to canvas
       const mx = (mouseRef.current.x + 1) / 2 * canvas.width;
       const my = (mouseRef.current.y + 1) / 2 * canvas.height;
       const distToMouse = Math.sqrt(Math.pow(p.originX - mx, 2) + Math.pow(p.originY - my, 2));

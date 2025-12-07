@@ -3,7 +3,7 @@ import { AppState, Message, Memory, PostcardData } from './types';
 import ParticleCanvas from './components/ParticleCanvas';
 import AudioController from './components/AudioController';
 import { startChatWithImage, sendMessage, generatePostcardSummary } from './services/geminiService';
-import { Upload, Mic, Send, X, Save, ArrowRight, Grid, Wind, Move, MessageSquare, User, Calendar, Tag } from 'lucide-react';
+import { Upload, Mic, Send, X, Save, ArrowRight, Grid, Wind, Move, MessageSquare, User, Calendar, Tag, Eye } from 'lucide-react';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.LANDING);
@@ -21,6 +21,7 @@ const App: React.FC = () => {
   
   const [postcardData, setPostcardData] = useState<PostcardData | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [activeMemory, setActiveMemory] = useState<Memory | null>(null); // For revisiting
   
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +86,7 @@ const App: React.FC = () => {
         setChatHistory([{ role: 'model', text: initialResponse }]);
         setAppState(AppState.CHAT);
         setIsChatVisible(false); 
+        setActiveMemory(null); // Clear active memory when starting fresh
       };
       reader.readAsDataURL(file);
     }
@@ -124,12 +126,14 @@ const App: React.FC = () => {
       keywords: postcardData?.keywords || [],
       date: new Date().toLocaleDateString('zh-CN'),
       timestamp: Date.now(),
+      viewCount: 0,
       x: startX,
       y: startY,
       rotation: 0 
     };
     setMemories([...memories, newMemory]);
     setAppState(AppState.MEMORY_CORRIDOR);
+    setActiveMemory(null);
   };
 
   const handleBackToStart = () => {
@@ -137,6 +141,37 @@ const App: React.FC = () => {
     setChatHistory([]);
     setPostcardData(null);
     setAppState(AppState.LANDING);
+    setActiveMemory(null);
+  };
+  
+  // Revisit Memory Function
+  const handleRevisitMemory = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent drag start
+    const memory = memories.find(m => m.id === id);
+    if (memory) {
+      // Increment view count
+      const updatedMemories = memories.map(m => 
+        m.id === id ? { ...m, viewCount: m.viewCount + 1 } : m
+      );
+      setMemories(updatedMemories);
+      
+      // Update local object for display
+      const updatedMemory = { ...memory, viewCount: memory.viewCount + 1 };
+      
+      setActiveMemory(updatedMemory);
+      setUploadedImage(memory.imageUrl);
+      setPostcardData({
+        summary: memory.summary,
+        mood: memory.mood,
+        keywords: memory.keywords
+      });
+      setAppState(AppState.POSTCARD_GENERATION);
+    }
+  };
+
+  const handleReturnToCorridor = () => {
+    setAppState(AppState.MEMORY_CORRIDOR);
+    setActiveMemory(null);
   };
 
   // Dragging Logic for Corridor
@@ -355,7 +390,7 @@ const App: React.FC = () => {
       {/* --- POSTCARD GENERATION (3D TILT) --- */}
       {appState === AppState.POSTCARD_GENERATION && (
         <div className="absolute inset-0 z-20 bg-black/95 flex flex-col items-center justify-center animate-fade-in">
-            {!postcardData ? (
+            {(!postcardData && !activeMemory) ? (
               <div className="text-center space-y-4 animate-pulse">
                 <div className="h-[1px] w-20 bg-white/20 mx-auto mb-8"></div>
                 <p className="text-xs tracking-[0.4em] text-white/50 uppercase">Extracting Essence...</p>
@@ -391,37 +426,54 @@ const App: React.FC = () => {
                          <div className="flex items-center gap-2 mb-4 opacity-50">
                            <Tag size={12}/>
                            <div className="flex gap-2 text-[10px] tracking-widest uppercase">
-                              {postcardData.keywords.map((k, i) => (
+                              {postcardData?.keywords?.map((k, i) => (
                                 <span key={i} className="border border-white/20 px-2 py-[2px] rounded-full">{k}</span>
                               ))}
                            </div>
                          </div>
                          <p className="text-lg font-display italic leading-relaxed text-white/90">
-                           "{postcardData.summary}"
+                           "{postcardData?.summary}"
                          </p>
                        </div>
 
                        <div className="flex justify-between items-end border-t border-white/10 pt-4">
                           <div className="flex flex-col gap-1">
                             <span className="text-[10px] text-white/30 uppercase tracking-widest">Mood</span>
-                            <span className="text-sm font-serif text-white/70">{postcardData.mood}</span>
+                            <span className="text-sm font-serif text-white/70">{postcardData?.mood}</span>
                           </div>
-                          <div className="flex flex-col gap-1 text-right">
-                             <span className="text-[10px] text-white/30 uppercase tracking-widest">Time</span>
-                             <span className="text-xs font-mono text-white/50">{new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                          </div>
+                          
+                          {activeMemory ? (
+                            <div className="flex flex-col gap-1 text-right">
+                               <span className="text-[10px] text-white/30 uppercase tracking-widest">View Count</span>
+                               <span className="text-xs font-mono text-white/50">第 {activeMemory.viewCount} 次回看</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1 text-right">
+                               <span className="text-[10px] text-white/30 uppercase tracking-widest">Time</span>
+                               <span className="text-xs font-mono text-white/50">{new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                            </div>
+                          )}
                        </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-16 text-center">
-                   <button 
-                    onClick={handleSaveMemory}
-                    className="text-xs tracking-[0.3em] text-white/40 hover:text-white border-b border-transparent hover:border-white/50 pb-1 transition-all duration-500 uppercase"
-                  >
-                    Store in Memory Corridor
-                  </button>
+                   {activeMemory ? (
+                     <button 
+                       onClick={handleReturnToCorridor}
+                       className="text-xs tracking-[0.3em] text-white/40 hover:text-white border-b border-transparent hover:border-white/50 pb-1 transition-all duration-500 uppercase"
+                     >
+                       Return to Corridor
+                     </button>
+                   ) : (
+                     <button 
+                       onClick={handleSaveMemory}
+                       className="text-xs tracking-[0.3em] text-white/40 hover:text-white border-b border-transparent hover:border-white/50 pb-1 transition-all duration-500 uppercase"
+                     >
+                       Store in Memory Corridor
+                     </button>
+                   )}
                 </div>
               </div>
             )}
@@ -474,6 +526,17 @@ const App: React.FC = () => {
                     className="w-full h-full object-cover filter contrast-125 sepia-[0.3] brightness-90 group-hover:brightness-110 transition-all duration-700"
                   />
                   <div className="absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] pointer-events-none"></div>
+                  
+                  {/* Revisit Button (Centered) */}
+                  <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <button 
+                      onClick={(e) => handleRevisitMemory(mem.id, e)}
+                      className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:bg-white/20 hover:scale-110 transition-all duration-300"
+                      title="Relive Memory"
+                    >
+                      <Eye size={20} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Floating Info */}

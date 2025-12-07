@@ -26,6 +26,7 @@ export interface Memory {
   timestamp: number;
   mood: string;
   keywords: string[];
+  viewCount: number;
   // Position for the puzzle/canvas view
   x: number;
   y: number;

@@ -72,6 +72,13 @@ export const sendMessage = async (history: Message[], newMessage: string, base64
 };
 
 export const generatePostcardSummary = async (history: Message[], base64Image: string): Promise<PostcardData> => {
+  // Default fallback data
+  const fallbackData: PostcardData = {
+    summary: "把此刻的微风，寄给未来的你。",
+    mood: "宁静",
+    keywords: ["记忆", "流年", "此刻"]
+  };
+
   try {
     let conversationText = "";
     history.forEach(h => {
@@ -114,16 +121,18 @@ export const generatePostcardSummary = async (history: Message[], base64Image: s
 
     const text = response.text;
     if (text) {
-      return JSON.parse(text) as PostcardData;
+      const parsed = JSON.parse(text);
+      // Merge with fallback to ensure all fields exist
+      return {
+        summary: parsed.summary || fallbackData.summary,
+        mood: parsed.mood || fallbackData.mood,
+        keywords: Array.isArray(parsed.keywords) ? parsed.keywords : fallbackData.keywords
+      };
     }
-    throw new Error("Empty response");
+    return fallbackData;
 
   } catch (error) {
     console.error("Gemini Postcard Error:", error);
-    return {
-      summary: "把此刻的微风，寄给未来的你。",
-      mood: "宁静",
-      keywords: ["记忆", "流年", "此刻"]
-    };
+    return fallbackData;
   }
 };
