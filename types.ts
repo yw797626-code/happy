@@ -4,8 +4,15 @@ export enum AppState {
   PROCESSING = 'PROCESSING',
   CHAT = 'CHAT',
   POSTCARD_GENERATION = 'POSTCARD_GENERATION',
-  MEMORY_CORRIDOR = 'MEMORY_CORRIDOR'
+  MEMORY_CORRIDOR = 'MEMORY_CORRIDOR',
+  
+  // Therapy Modes
+  EMOTION_SELECTION = 'EMOTION_SELECTION',
+  THERAPY_CHAT = 'THERAPY_CHAT',
+  THERAPY_RESULT = 'THERAPY_RESULT'
 }
+
+export type InteractionMode = 'hover' | 'gather' | 'scatter';
 
 export interface Message {
   role: 'user' | 'model';
@@ -20,7 +27,7 @@ export interface PostcardData {
 
 export interface Memory {
   id: string;
-  imageUrl: string; // Base64
+  imageUrl: string | null; // Base64 or null for text-only memories
   summary: string;
   date: string;
   timestamp: number;
@@ -31,6 +38,7 @@ export interface Memory {
   x: number;
   y: number;
   rotation: number;
+  type: 'image' | 'therapy';
 }
 
 export interface Particle {

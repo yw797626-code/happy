@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { AppState, Message, Memory, PostcardData } from './types';
+import { AppState, Message, Memory, PostcardData, InteractionMode } from './types';
 import ParticleCanvas from './components/ParticleCanvas';
 import AudioController from './components/AudioController';
-import { startChatWithImage, sendMessage, generatePostcardSummary } from './services/geminiService';
-import { Upload, Mic, Send, X, Save, ArrowRight, Grid, Wind, Move, MessageSquare, User, Calendar, Tag, Eye } from 'lucide-react';
+import { startChatWithImage, sendMessage, generatePostcardSummary, startTherapyChat, sendTherapyMessage, generateOldPaperSummary } from './services/geminiService';
+import { Upload, Mic, Send, X, Save, ArrowRight, Grid, Wind, Move, MessageSquare, User, Calendar, Tag, Eye, Heart, Feather, Trash2, Settings2, Magnet, Radiation, MousePointer2 } from 'lucide-react';
+
+const EMOTIONS = ["焦虑", "迷茫", "孤独", "疲惫", "失落"];
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.LANDING);
@@ -11,14 +13,23 @@ const App: React.FC = () => {
   const [audioData, setAudioData] = useState<Uint8Array>(new Uint8Array(0));
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   
+  // Interaction Mode State
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('hover');
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  
   // Transition States
   const [isLandingTransitioning, setIsLandingTransitioning] = useState(false);
 
+  // Chat States
   const [chatHistory, setChatHistory] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(false); 
   
+  // Therapy States
+  const [selectedEmotion, setSelectedEmotion] = useState<string>("");
+
+  // Result States
   const [postcardData, setPostcardData] = useState<PostcardData | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [activeMemory, setActiveMemory] = useState<Memory | null>(null); // For revisiting
@@ -45,7 +56,7 @@ const App: React.FC = () => {
   // Spacebar Listener for Chat
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (appState === AppState.CHAT) {
+      if (appState === AppState.CHAT || appState === AppState.THERAPY_CHAT) {
         if (e.code === 'Space' && document.activeElement !== chatInputRef.current) {
           e.preventDefault();
           setIsChatVisible(prev => !prev);
@@ -92,20 +103,86 @@ const App: React.FC = () => {
     }
   };
 
+  // --- THERAPY FLOW HANDLERS ---
+  const handleStartTherapy = () => {
+      setAppState(AppState.EMOTION_SELECTION);
+  };
+
+  const handleSelectEmotion = async (emotion: string) => {
+      setSelectedEmotion(emotion);
+      setAppState(AppState.PROCESSING);
+      // Wait a moment for "processing" feel
+      const initialResponse = await startTherapyChat(emotion);
+      setChatHistory([{ role: 'model', text: initialResponse }]);
+      setAppState(AppState.THERAPY_CHAT);
+      setIsChatVisible(true);
+  };
+
+  const handleEndTherapy = async () => {
+      setAppState(AppState.THERAPY_RESULT);
+      setIsChatVisible(false);
+      const data = await generateOldPaperSummary(chatHistory, selectedEmotion);
+      setPostcardData(data);
+  };
+
+  const handleDiscardTherapy = () => {
+      // Animation handled by transition, just reset state
+      setUploadedImage(null);
+      setChatHistory([]);
+      setPostcardData(null);
+      setAppState(AppState.UPLOAD); // Go back to selection
+  };
+  
+  const handleSaveBottle = () => {
+    const startX = window.innerWidth * 0.1 + Math.random() * (window.innerWidth * 0.6);
+    const startY = window.innerHeight * 0.1 + Math.random() * (window.innerHeight * 0.6);
+
+    const newMemory: Memory = {
+        id: Date.now().toString(),
+        imageUrl: null, // Text only memory
+        summary: postcardData?.summary || "",
+        mood: postcardData?.mood || selectedEmotion,
+        keywords: postcardData?.keywords || [],
+        date: new Date().toLocaleDateString('zh-CN'),
+        timestamp: Date.now(),
+        viewCount: 0,
+        x: startX,
+        y: startY,
+        rotation: (Math.random() - 0.5) * 30,
+        type: 'therapy'
+    };
+    setMemories([...memories, newMemory]);
+    setAppState(AppState.MEMORY_CORRIDOR);
+  };
+
+  // --- GENERAL CHAT HANDLERS ---
+
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !uploadedImage) return;
+    if (!inputText.trim()) return;
 
     const newHistory = [...chatHistory, { role: 'user', text: inputText } as Message];
     setChatHistory(newHistory);
     setInputText("");
     setIsTyping(true);
 
-    const response = await sendMessage(newHistory, inputText, uploadedImage);
+    let response = "";
+    if (appState === AppState.THERAPY_CHAT) {
+        response = await sendTherapyMessage(newHistory, inputText, selectedEmotion);
+    } else {
+        // Normal image chat
+        if (!uploadedImage) return;
+        response = await sendMessage(newHistory, inputText, uploadedImage);
+    }
+    
     setChatHistory([...newHistory, { role: 'model', text: response }]);
     setIsTyping(false);
   };
 
   const handleEndChat = async () => {
+    if (appState === AppState.THERAPY_CHAT) {
+        handleEndTherapy();
+        return;
+    }
     setAppState(AppState.POSTCARD_GENERATION);
     setIsChatVisible(false);
     // Generate complex data
@@ -129,7 +206,8 @@ const App: React.FC = () => {
       viewCount: 0,
       x: startX,
       y: startY,
-      rotation: 0 
+      rotation: 0,
+      type: 'image'
     };
     setMemories([...memories, newMemory]);
     setAppState(AppState.MEMORY_CORRIDOR);
@@ -159,13 +237,21 @@ const App: React.FC = () => {
       const updatedMemory = { ...memory, viewCount: memory.viewCount + 1 };
       
       setActiveMemory(updatedMemory);
-      setUploadedImage(memory.imageUrl);
+      
       setPostcardData({
         summary: memory.summary,
         mood: memory.mood,
         keywords: memory.keywords
       });
-      setAppState(AppState.POSTCARD_GENERATION);
+
+      if (memory.type === 'therapy') {
+          // Revisit therapy session (Old Paper)
+          setAppState(AppState.THERAPY_RESULT);
+      } else {
+          // Revisit image session (Postcard)
+          setUploadedImage(memory.imageUrl);
+          setAppState(AppState.POSTCARD_GENERATION);
+      }
     }
   };
 
@@ -229,6 +315,7 @@ const App: React.FC = () => {
           imageSrc={uploadedImage} 
           audioData={audioData}
           isAudioPlaying={isAudioPlaying}
+          interactionMode={interactionMode}
         />
       )}
 
@@ -238,11 +325,56 @@ const App: React.FC = () => {
         isPlaying={isAudioPlaying} 
         onToggle={() => setIsAudioPlaying(!isAudioPlaying)}
       />
+      
+      {/* Interaction Mode Panel */}
+      {appState !== AppState.LANDING && appState !== AppState.MEMORY_CORRIDOR && (
+          <div className={`fixed right-6 top-1/2 -translate-y-1/2 z-40 transition-all duration-500 ${isPanelOpen ? 'translate-x-0' : 'translate-x-[calc(100%-40px)]'}`}>
+              <div className="relative flex items-center">
+                  <button 
+                    onClick={() => setIsPanelOpen(!isPanelOpen)}
+                    className="absolute -left-10 w-10 h-10 bg-white/5 backdrop-blur-md flex items-center justify-center rounded-l-lg border-y border-l border-white/10 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+                  >
+                      <Settings2 size={18} />
+                  </button>
+                  <div className="glass-panel p-4 rounded-l-lg rounded-r-none flex flex-col gap-4">
+                      <div className="text-[10px] tracking-widest text-white/40 uppercase mb-2">Particle Interaction</div>
+                      
+                      <button 
+                        onClick={() => setInteractionMode('hover')}
+                        className={`flex items-center gap-3 px-4 py-2 rounded transition-all ${interactionMode === 'hover' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
+                      >
+                          <MousePointer2 size={16} />
+                          <span className="text-xs tracking-wider">Hover</span>
+                      </button>
+                      <button 
+                        onClick={() => setInteractionMode('gather')}
+                        className={`flex items-center gap-3 px-4 py-2 rounded transition-all ${interactionMode === 'gather' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
+                      >
+                          <Magnet size={16} />
+                          <span className="text-xs tracking-wider">Gather</span>
+                      </button>
+                      <button 
+                        onClick={() => setInteractionMode('scatter')}
+                        className={`flex items-center gap-3 px-4 py-2 rounded transition-all ${interactionMode === 'scatter' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/80'}`}
+                      >
+                          <Radiation size={16} />
+                          <span className="text-xs tracking-wider">Scatter</span>
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* --- LANDING VIEW --- */}
       {appState === AppState.LANDING && (
         <div className={`absolute inset-0 flex flex-col items-center justify-center z-10 bg-black/40 backdrop-blur-[1px] transition-all duration-1000 ${isLandingTransitioning ? 'pointer-events-none' : ''}`}>
-          <div className={`${isLandingTransitioning ? 'animate-smoke-exit' : ''} flex flex-col items-center`}>
+          
+          {/* Dynamic Light Halos */}
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] animate-blob"></div>
+          <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] animate-blob animate-delay-2000"></div>
+          <div className="absolute bottom-1/4 left-1/3 w-80 h-80 bg-amber-500/5 rounded-full blur-[80px] animate-blob animate-delay-4000"></div>
+
+          <div className={`${isLandingTransitioning ? 'animate-smoke-exit' : ''} flex flex-col items-center relative z-20`}>
             <div className="mb-4 text-white/20 tracking-[0.5em] text-xs font-sans uppercase">Welcome to</div>
             <h1 className="text-6xl md:text-8xl font-thin tracking-[0.1em] mb-10 text-white/90 font-display italic mix-blend-screen text-shadow-glow">
               记忆回廊
@@ -268,31 +400,94 @@ const App: React.FC = () => {
 
       {/* --- UPLOAD VIEW --- */}
       {appState === AppState.UPLOAD && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 animate-fade-in">
-           {/* High-end Upload Trigger */}
-           <div 
-             className="relative w-96 h-96 group cursor-pointer flex items-center justify-center"
-             onClick={() => fileInputRef.current?.click()}
-           >
-             {/* Rotating Decoration Rings */}
-             <div className="absolute inset-0 border border-white/5 rounded-full scale-75 group-hover:scale-90 transition-transform duration-[2s] ease-in-out"></div>
-             <div className="absolute inset-0 border border-white/5 rounded-full scale-50 group-hover:scale-75 transition-transform duration-[2s] delay-100 ease-in-out border-dashed animate-spin-slow"></div>
-             
-             {/* Center visual */}
-             <div className="relative z-10 flex flex-col items-center gap-4">
-                <div className="w-1 h-20 bg-gradient-to-b from-transparent via-white/50 to-transparent mb-4 group-hover:h-32 transition-all duration-700"></div>
-                <span className="text-4xl font-display italic text-white/60 group-hover:text-white transition-colors">Upload</span>
-                <span className="text-[10px] tracking-[0.4em] text-white/30 uppercase mt-2">Create Memory</span>
-             </div>
-           </div>
+        <div className="absolute inset-0 flex flex-col md:flex-row items-center justify-center gap-20 z-10 animate-fade-in">
            
-           <input 
-             type="file" 
-             ref={fileInputRef} 
-             onChange={handleFileUpload} 
-             className="hidden" 
-             accept="image/*"
-           />
+           {/* Option 1: Upload Image */}
+           <div className="relative group cursor-pointer flex flex-col items-center">
+             <div 
+               className="relative w-72 h-72 flex items-center justify-center mb-8"
+               onClick={() => fileInputRef.current?.click()}
+             >
+                <div className="absolute inset-0 bg-blue-500/5 blur-[50px] animate-pulse"></div>
+                <div className="absolute inset-0 border border-white/10 rounded-full scale-90 group-hover:scale-100 transition-transform duration-[1.5s]"></div>
+                <div className="absolute inset-0 border border-white/10 rounded-full scale-75 group-hover:scale-90 transition-transform duration-[1.5s] delay-75 border-dashed animate-spin-slow"></div>
+                
+                <div className="relative z-10 flex flex-col items-center gap-4">
+                    <div className="w-px h-16 bg-gradient-to-b from-transparent via-white/40 to-transparent group-hover:h-24 transition-all duration-500"></div>
+                    <span className="text-3xl font-display italic text-white/60 group-hover:text-white transition-colors">Visual</span>
+                </div>
+             </div>
+             <span className="text-[10px] tracking-[0.4em] text-white/30 uppercase group-hover:text-white/50 transition-colors">Create Memory</span>
+             <input 
+                 type="file" 
+                 ref={fileInputRef} 
+                 onChange={handleFileUpload} 
+                 className="hidden" 
+                 accept="image/*"
+             />
+           </div>
+
+           {/* Divider */}
+           <div className="h-px w-24 bg-white/10 md:w-px md:h-48"></div>
+
+           {/* Option 2: Heal Soul */}
+           <div className="relative group cursor-pointer flex flex-col items-center">
+             <div 
+               className="relative w-72 h-72 flex items-center justify-center mb-8"
+               onClick={handleStartTherapy}
+             >
+                <div className="absolute inset-0 bg-amber-500/5 blur-[50px] animate-pulse delay-700"></div>
+                <div className="absolute inset-0 border border-white/10 rounded-full scale-90 group-hover:scale-100 transition-transform duration-[1.5s]"></div>
+                <div className="absolute inset-0 border border-white/10 rounded-full scale-75 group-hover:scale-90 transition-transform duration-[1.5s] delay-75 border-dotted animate-reverse-spin"></div>
+                
+                <div className="relative z-10 flex flex-col items-center gap-4">
+                    <Feather size={24} className="text-white/40 group-hover:text-white group-hover:-translate-y-2 transition-all duration-500" />
+                    <span className="text-3xl font-display italic text-white/60 group-hover:text-white transition-colors">Heal</span>
+                </div>
+             </div>
+             <span className="text-[10px] tracking-[0.4em] text-white/30 uppercase group-hover:text-white/50 transition-colors">Soothe Soul</span>
+           </div>
+        </div>
+      )}
+      
+      {/* --- EMOTION SELECTION (Falling Feathers) --- */}
+      {appState === AppState.EMOTION_SELECTION && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in overflow-hidden">
+             <div className="absolute inset-0 pointer-events-none">
+                {/* Decorative falling particles */}
+                {Array.from({length: 20}).map((_, i) => (
+                    <div key={i} className="absolute w-1 h-1 bg-white/20 rounded-full animate-fall" style={{
+                        left: `${Math.random() * 100}%`,
+                        animationDelay: `${Math.random() * 5}s`,
+                        animationDuration: `${5 + Math.random() * 10}s`
+                    }}></div>
+                ))}
+             </div>
+
+             <h2 className="text-3xl font-display italic text-white/80 mb-16 animate-pulse">此刻，你的心境是...</h2>
+             
+             <div className="flex flex-wrap gap-12 justify-center max-w-4xl px-4 z-10">
+                 {EMOTIONS.map((emotion, idx) => (
+                     <button 
+                        key={emotion}
+                        onClick={() => handleSelectEmotion(emotion)}
+                        className="group flex flex-col items-center gap-4 animate-float"
+                        style={{ animationDelay: `${idx * 0.5}s` }}
+                     >
+                         <div className="w-16 h-16 rounded-full border border-white/10 bg-white/5 flex items-center justify-center group-hover:bg-white/10 group-hover:scale-110 transition-all duration-500 backdrop-blur-md">
+                             <Feather size={24} className="text-white/60 group-hover:text-white transition-colors" />
+                         </div>
+                         <span className="text-sm tracking-widest text-white/40 group-hover:text-white transition-colors">{emotion}</span>
+                     </button>
+                 ))}
+             </div>
+             
+             <button 
+                onClick={() => setAppState(AppState.UPLOAD)}
+                className="absolute bottom-10 text-xs tracking-[0.2em] text-white/20 hover:text-white/50 transition-colors uppercase"
+             >
+                 Back
+             </button>
         </div>
       )}
 
@@ -307,8 +502,8 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- CHAT VIEW --- */}
-      {appState === AppState.CHAT && (
+      {/* --- CHAT VIEW (Shared for Image & Therapy) --- */}
+      {(appState === AppState.CHAT || appState === AppState.THERAPY_CHAT) && (
         <>
           {!isChatVisible && (
             <div className="absolute bottom-12 left-1/2 -translate-x-1/2 animate-pulse text-white/40 text-[10px] tracking-[0.2em] uppercase font-sans">
@@ -325,12 +520,16 @@ const App: React.FC = () => {
               
               <div className="flex justify-between items-center px-8 py-6 border-b border-white/5 bg-white/[0.02]">
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500/50 animate-pulse"></div>
-                  <span className="text-xs tracking-widest text-white/40 uppercase font-sans">Connected</span>
+                  <div className={`w-2 h-2 rounded-full ${appState === AppState.THERAPY_CHAT ? 'bg-amber-500/50' : 'bg-green-500/50'} animate-pulse`}></div>
+                  <span className="text-xs tracking-widest text-white/40 uppercase font-sans">
+                      {appState === AppState.THERAPY_CHAT ? 'Therapy Session' : 'Connected'}
+                  </span>
                 </div>
                 <div className="flex gap-6">
                   <button onClick={handleEndChat} className="text-xs text-white/40 hover:text-amber-200 transition-colors flex items-center gap-2 group">
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform translate-x-2 group-hover:translate-x-0">Archive Memory</span>
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform translate-x-2 group-hover:translate-x-0">
+                        {appState === AppState.THERAPY_CHAT ? 'Seal in Bottle' : 'Archive Memory'}
+                    </span>
                     <Save size={14}/> 
                   </button>
                   <button onClick={() => setIsChatVisible(false)} className="text-white/40 hover:text-white transition-colors">
@@ -345,10 +544,10 @@ const App: React.FC = () => {
               >
                 {chatHistory.map((msg, idx) => (
                   <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] text-sm leading-8 px-6 py-4 relative group ${
+                    <div className={`max-w-[80%] text-base leading-8 px-6 py-4 relative group ${
                       msg.role === 'model' 
-                        ? 'text-white/80' 
-                        : 'text-white/60 text-right'
+                        ? 'text-white/90' 
+                        : 'text-white/70 text-right'
                     }`}>
                       {msg.role === 'model' && <div className="absolute left-0 top-4 w-[2px] h-4 bg-white/20 group-hover:bg-white/50 transition-colors"></div>}
                       {msg.role === 'user' && <div className="absolute right-0 top-4 w-[2px] h-4 bg-white/10 group-hover:bg-white/30 transition-colors"></div>}
@@ -371,7 +570,7 @@ const App: React.FC = () => {
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Type to speak..."
+                    placeholder={appState === AppState.THERAPY_CHAT ? "Pour your heart out..." : "Type to speak..."}
                     className="w-full bg-transparent border-b border-white/10 px-4 py-4 text-base text-white focus:outline-none focus:border-white/40 transition-colors placeholder:text-white/10 font-light"
                   />
                   <button 
@@ -387,16 +586,85 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* --- POSTCARD GENERATION (3D TILT) --- */}
+      {/* --- THERAPY RESULT (Drift Bottle) --- */}
+      {appState === AppState.THERAPY_RESULT && (
+          <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md">
+             {(!postcardData && !activeMemory) ? (
+                 <div className="spinner-weave"></div>
+             ) : (
+                <div className="relative animate-fade-in flex flex-col items-center gap-10">
+                    <div className="relative w-[500px] h-[600px] bg-paper shadow-2xl p-12 flex flex-col justify-between text-[#2c241b] transform rotate-1">
+                        <div className="absolute top-0 left-0 w-full h-full pointer-events-none mix-blend-multiply opacity-20 bg-noise"></div>
+                        
+                        <div className="z-10 text-center border-b border-[#2c241b]/20 pb-8">
+                             <div className="mb-4 opacity-60">
+                                 <Feather size={24} className="mx-auto" />
+                             </div>
+                             <h3 className="text-xl font-display font-bold tracking-widest uppercase mb-2">Prescription for the Soul</h3>
+                             <p className="text-xs tracking-[0.3em] opacity-60">Date: {new Date().toLocaleDateString()}</p>
+                        </div>
+
+                        <div className="z-10 flex-1 flex items-center justify-center py-8">
+                             <p className="text-2xl font-serif leading-loose text-center italic">
+                                 "{postcardData?.summary}"
+                             </p>
+                        </div>
+
+                        <div className="z-10 flex justify-between items-end border-t border-[#2c241b]/20 pt-8">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[10px] uppercase tracking-widest opacity-50">Diagnosis</span>
+                                <span className="text-lg font-serif">{postcardData?.mood}</span>
+                            </div>
+                            <div className="flex flex-col gap-1 items-end">
+                                <span className="text-[10px] uppercase tracking-widest opacity-50">Remedy</span>
+                                <div className="flex gap-2">
+                                    {postcardData?.keywords?.map((k,i) => (
+                                        <span key={i} className="text-sm font-serif border-b border-[#2c241b]/20">{k}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-8">
+                        <button 
+                           onClick={handleDiscardTherapy}
+                           className="flex items-center gap-2 px-6 py-3 border border-white/10 rounded-full text-white/40 hover:bg-white/5 hover:text-white transition-all group"
+                        >
+                            <Trash2 size={16} className="group-hover:text-red-400 transition-colors" />
+                            <span className="text-xs uppercase tracking-widest">Discard to Sea</span>
+                        </button>
+                        <button 
+                           onClick={handleSaveBottle}
+                           className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 rounded-full text-white/80 hover:text-white transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+                        >
+                            <Wind size={16} />
+                            <span className="text-xs uppercase tracking-widest">Put in Bottle & Keep</span>
+                        </button>
+                    </div>
+                </div>
+             )}
+          </div>
+      )}
+
+      {/* --- POSTCARD GENERATION (LOADING & 3D TILT) --- */}
       {appState === AppState.POSTCARD_GENERATION && (
         <div className="absolute inset-0 z-20 bg-black/95 flex flex-col items-center justify-center animate-fade-in">
+             {/* Background Halo */}
+             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[120px] animate-pulse pointer-events-none"></div>
+
             {(!postcardData && !activeMemory) ? (
-              <div className="text-center space-y-4 animate-pulse">
-                <div className="h-[1px] w-20 bg-white/20 mx-auto mb-8"></div>
-                <p className="text-xs tracking-[0.4em] text-white/50 uppercase">Extracting Essence...</p>
+              // Enhanced Loading Screen
+              <div className="flex flex-col items-center gap-12">
+                 <div className="spinner-weave"></div>
+                 <div className="text-center space-y-4">
+                    <p className="text-2xl font-display italic text-white/80 animate-pulse">Weaving memories into light...</p>
+                    <div className="h-[1px] w-12 bg-white/20 mx-auto"></div>
+                    <p className="text-[10px] tracking-[0.4em] text-white/40 uppercase">Analyzing Emotion</p>
+                 </div>
               </div>
             ) : (
-              <div className="perspective-1000">
+              <div className="perspective-1000 animate-fade-in z-30">
                 <div 
                   ref={cardRef}
                   onMouseMove={handleCardMouseMove}
@@ -517,27 +785,51 @@ const App: React.FC = () => {
             >
               <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-105 group-hover:-translate-y-2">
                 
-                {/* Image Content with Mask */}
-                <div className="absolute inset-0 puzzle-mask-1 bg-[#1a1a1a]">
-                  <div className="absolute inset-0 opacity-40 bg-noise mix-blend-overlay z-10 pointer-events-none"></div>
-                  <img 
-                    src={mem.imageUrl} 
-                    alt="memory" 
-                    className="w-full h-full object-cover filter contrast-125 sepia-[0.3] brightness-90 group-hover:brightness-110 transition-all duration-700"
-                  />
-                  <div className="absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] pointer-events-none"></div>
-                  
-                  {/* Revisit Button (Centered) */}
-                  <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <button 
-                      onClick={(e) => handleRevisitMemory(mem.id, e)}
-                      className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:bg-white/20 hover:scale-110 transition-all duration-300"
-                      title="Relive Memory"
-                    >
-                      <Eye size={20} />
-                    </button>
-                  </div>
-                </div>
+                {/* Content with Mask */}
+                {mem.type === 'therapy' ? (
+                     // THERAPY MEMORY (BOTTLE/PAPER)
+                     <div className="absolute inset-0 puzzle-mask-1 bg-[#1a1410] border-none">
+                         <div className="absolute inset-0 opacity-40 bg-paper mix-blend-overlay z-10 pointer-events-none"></div>
+                         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                             <Feather size={24} className="text-white/40 mb-2" />
+                             <span className="text-xs font-serif text-white/60 mb-2">{mem.mood}</span>
+                             <p className="text-[10px] leading-relaxed text-white/40 line-clamp-3 italic">"{mem.summary}"</p>
+                         </div>
+                         <div className="absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] pointer-events-none"></div>
+                         
+                         {/* Revisit Button */}
+                         <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                             <button 
+                               onClick={(e) => handleRevisitMemory(mem.id, e)}
+                               className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:bg-white/20 hover:scale-110 transition-all duration-300"
+                             >
+                               <Eye size={20} />
+                             </button>
+                         </div>
+                     </div>
+                ) : (
+                    // IMAGE MEMORY
+                    <div className="absolute inset-0 puzzle-mask-1 bg-[#1a1a1a]">
+                      <div className="absolute inset-0 opacity-40 bg-noise mix-blend-overlay z-10 pointer-events-none"></div>
+                      <img 
+                        src={mem.imageUrl!} 
+                        alt="memory" 
+                        className="w-full h-full object-cover filter contrast-125 sepia-[0.3] brightness-90 group-hover:brightness-110 transition-all duration-700"
+                      />
+                      <div className="absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.9)] pointer-events-none"></div>
+                      
+                      {/* Revisit Button */}
+                      <div className="absolute inset-0 flex items-center justify-center z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <button 
+                          onClick={(e) => handleRevisitMemory(mem.id, e)}
+                          className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:bg-white/20 hover:scale-110 transition-all duration-300"
+                          title="Relive Memory"
+                        >
+                          <Eye size={20} />
+                        </button>
+                      </div>
+                    </div>
+                )}
 
                 {/* Floating Info */}
                 <div className="absolute -bottom-12 left-4 w-60 opacity-0 group-hover:opacity-100 transition-all duration-500 pointer-events-none transform translate-y-4 group-hover:translate-y-0">
@@ -545,9 +837,11 @@ const App: React.FC = () => {
                      <span className="text-[10px] tracking-widest text-white/60 font-sans uppercase">{mem.mood}</span>
                      <span className="text-[10px] tracking-widest text-white/40 font-mono">{mem.date}</span>
                   </div>
-                  <p className="text-sm text-white/90 font-display italic leading-relaxed text-shadow-glow">
-                    "{mem.summary}"
-                  </p>
+                  {mem.type === 'image' && (
+                      <p className="text-sm text-white/90 font-display italic leading-relaxed text-shadow-glow">
+                        "{mem.summary}"
+                      </p>
+                  )}
                 </div>
               </div>
             </div>
